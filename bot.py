@@ -2,11 +2,10 @@ from __future__ import annotations
 import os
 import io
 import asyncio
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 import discord
 from discord.ext import commands
-
 from dotenv import load_dotenv
 
 from storage import Storage
@@ -16,13 +15,13 @@ from compute import compute_TS, compute_push_value, PushInputs
 from scheduler import build_scheduler, add_cron_jobs
 from utils import current_month_str_utc, utcnow_naive
 
-# Matplotlib für das Histogramm
+# Histogramm mit Matplotlib
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# Robustes ISO-Zeitstempel-Parsing
+# ISO-Parsing
 from dateutil import parser
 
 load_dotenv()
@@ -58,8 +57,7 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
         if not data:
             await ctx.reply("Nutzer nicht gefunden.")
             return None
-        discord_id = str(ctx.author.id)
-        user = storage.upsert_user(discord_id, str(data["id"]), data["username"])
+        user = storage.upsert_user(str(ctx.author.id), str(data["id"]), data["username"])
         return user
     else:
         user = storage.get_user_by_discord(str(ctx.author.id))
@@ -67,10 +65,10 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
             await ctx.reply("Bitte zuerst `&register [osu-username|osu-user-id]` ausführen.")
         return user
 
-def _parse_osu_score_time(s: dict) -> datetime:
+def _parse_osu_score_time(s: dict) -> datetime | None:
     """
     Nimmt ended_at oder created_at und gibt einen UTC-naiven datetime zurück.
-    Fallback: jetzt (UTC), falls nichts vorhanden.
+    Wenn beides fehlt, None (wir speichern das Play NICHT).
     """
     for key in ("ended_at", "created_at"):
         val = s.get(key)
@@ -81,7 +79,7 @@ def _parse_osu_score_time(s: dict) -> datetime:
             else:
                 dt = dt.replace(tzinfo=None)
             return dt
-    return utcnow_naive()
+    return None
 
 async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     """Sichert, dass TopStats für den Monat vorhanden sind; berechnet sie falls nötig."""
@@ -89,7 +87,6 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     if existing:
         return existing
 
-    # Hole Best Scores (All Time)
     best = await osu.get_user_best(user.osu_user_id, limit=100)
     if not best:
         ts = TopStats(
@@ -99,11 +96,9 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
         storage.upsert_topstats(ts)
         return ts
 
-    # Top50 pp threshold
     sorted_best = sorted(best, key=lambda s: float(s.get("pp") or 0.0), reverse=True)
     top50_pp_threshold = float(sorted_best[49]["pp"]) if len(sorted_best) >= 50 else 0.0
 
-    # Top10: SR-Durchschnitt und Miss-Summe
     top10 = sorted_best[:10]
     sr_vals = []
     miss_sum = 0
@@ -143,6 +138,9 @@ async def sync_recent_for_user(user: User):
             continue
 
         ts_utc = _parse_osu_score_time(s)
+        if ts_utc is None:
+            # Kein brauchbarer Zeitstempel -> nicht speichern
+            continue
 
         beatmap = s.get("beatmap") or {}
         beatmap_id = str(beatmap.get("id") or "")
@@ -301,10 +299,10 @@ async def stars(ctx: commands.Context, username: str | None = None):
         return
 
     # Star-Rating-Verteilung
-    stars = [p.star_rating for p in plays]
-    bins = np.arange(0.0, 10.0 + 0.25, 0.25)  # fixed width 0.25
+    star_vals = [p.star_rating for p in plays]
+    bins = np.arange(0.0, 10.0 + 0.25, 0.25)
     fig = plt.figure(figsize=(8, 4.5), dpi=140)
-    plt.hist(stars, bins=bins)
+    plt.hist(star_vals, bins=bins)
     plt.title("Star-Rating-Verteilung (aktueller Monat)")
     plt.xlabel("Sterne")
     plt.ylabel("Anzahl Plays")
@@ -318,6 +316,21 @@ async def stars(ctx: commands.Context, username: str | None = None):
 
     file = discord.File(fp=buf, filename="stars.png")
     await ctx.reply(content=f"Star-Distribution für **{user.osu_username}**", file=file)
+
+# ---- Admin-Tool zum Aufräumen von Testdaten ----
+@bot.command(name="wipe_plays")
+@commands.has_permissions(administrator=True)
+async def wipe_plays(ctx: commands.Context, username: str):
+    """&wipe_plays <osu-username> — löscht alle gespeicherten Plays dieses Users."""
+    u = storage.get_user_by_osu_username(username)
+    if not u:
+        await ctx.reply("Nutzer nicht gefunden.")
+        return
+    # brutale, aber effektive Kehrwoche:
+    from sqlalchemy import delete
+    with storage.session() as s:
+        s.execute(delete(Play).where(Play.user_id == u.id))
+    await ctx.reply(f"Alle Plays für **{username}** gelöscht.")
 
 # =========================
 # Main
