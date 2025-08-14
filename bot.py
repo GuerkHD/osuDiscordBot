@@ -14,7 +14,7 @@ from models import User, Play, TopStats
 from osu_api import OsuApi
 from compute import compute_TS, compute_push_value, PushInputs
 from scheduler import build_scheduler, add_cron_jobs
-from utils import current_month_str_utc
+from utils import current_month_str_utc, utcnow_naive
 
 # Matplotlib für das Histogramm
 import matplotlib
@@ -54,7 +54,6 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
         user = storage.get_user_by_osu_username(username_opt)
         if user:
             return user
-        # Fallback: direkte Abfrage bei osu! und (falls gewünscht) verknüpfen
         data = await osu.get_user(username_opt)
         if not data:
             await ctx.reply("Nutzer nicht gefunden.")
@@ -82,7 +81,7 @@ def _parse_osu_score_time(s: dict) -> datetime:
             else:
                 dt = dt.replace(tzinfo=None)
             return dt
-    return datetime.utcnow()
+    return utcnow_naive()
 
 async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     """Sichert, dass TopStats für den Monat vorhanden sind; berechnet sie falls nötig."""
@@ -90,7 +89,7 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     if existing:
         return existing
 
-    # Hole Best Scores (All Time), sortiert nach pp
+    # Hole Best Scores (All Time)
     best = await osu.get_user_best(user.osu_user_id, limit=100)
     if not best:
         ts = TopStats(
@@ -140,7 +139,6 @@ async def sync_recent_for_user(user: User):
     ts = await fetch_topstats_for_month(user, month_str)  # stellt TS + Top50 sicher
 
     for s in rec:
-        # Nur erfolgreiche Runs
         if s.get("passed") is False:
             continue
 
@@ -149,13 +147,11 @@ async def sync_recent_for_user(user: User):
         beatmap = s.get("beatmap") or {}
         beatmap_id = str(beatmap.get("id") or "")
         if not beatmap_id:
-            # Ohne Beatmap-ID kein sinnvoller Unique-Key
             continue
 
         sr = float(beatmap.get("difficulty_rating") or 0.0)
         total_len = float(beatmap.get("total_length") or 0.0)
-
-        acc = float(s.get("accuracy") or 0.0) * 100.0  # 0..1 -> Prozent
+        acc = float(s.get("accuracy") or 0.0) * 100.0  # 0..1 -> %
         misses = int((s.get("statistics") or {}).get("count_miss", 0))
         pp = float(s.get("pp") or 0.0)
 
@@ -177,8 +173,6 @@ async def sync_recent_for_user(user: User):
             source="recent",
             push_value=float(pv),
         )
-
-        # Fügt nur ein, wenn es den Datensatz noch nicht gibt (UniqueConstraint)
         storage.insert_play_if_new(p)
 
 async def half_hour_recent_sync():
@@ -187,7 +181,6 @@ async def half_hour_recent_sync():
         try:
             await sync_recent_for_user(u)
         except Exception:
-            # laut Spezifikation: on_api_error -> retry/backoff then skip
             continue
 
 async def monthly_top_init():
@@ -218,7 +211,6 @@ async def on_ready():
 async def register(ctx: commands.Context, arg: str | None = None):
     """&register [osu-username|osu-user-id]"""
     target = arg or str(ctx.author.id)
-    # Versuche zuerst als ID, dann als Username
     data = await osu.get_user(target)
     if not data and arg:
         data = await osu.get_user(arg)
@@ -234,7 +226,6 @@ async def push(ctx: commands.Context, username: str | None = None):
     user = await resolve_user(ctx, username)
     if not user:
         return
-    # Regel: Refresh recents vor Command
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=None)
     await ctx.reply(f"Kumulative Push Value für **{user.osu_username}**: **{total:.2f}**")
@@ -257,7 +248,7 @@ async def leaderboard(ctx: commands.Context, *args):
         if a == "--hours" and i + 1 < len(args):
             try:
                 scope_hours = int(args[i + 1])
-            except:
+            except Exception:
                 pass
 
     users = storage.get_all_users()
@@ -303,7 +294,7 @@ async def stars(ctx: commands.Context, username: str | None = None):
         return
     await sync_recent_for_user(user)
 
-    now = datetime.utcnow()
+    now = utcnow_naive()
     plays = storage.plays_in_month(user.id, now.year, now.month)
     if not plays:
         await ctx.reply("Keine Plays im aktuellen Monat gefunden.")
