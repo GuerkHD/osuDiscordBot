@@ -1,0 +1,10 @@
+discord.py
+python-dotenv
+SQLAlchemy
+alembic
+APScheduler
+httpx
+pytz
+python-dateutil
+matplotlib
+numpy
