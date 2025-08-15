@@ -15,18 +15,16 @@ from compute import compute_TS, compute_push_value, PushInputs
 from scheduler import build_scheduler, add_cron_jobs
 from utils import current_month_str_utc, utcnow_naive
 
-# Histogramm mit Matplotlib
+# Histogramm
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 import numpy as np
 
-# ISO-Parsing
 from dateutil import parser
 
 load_dotenv()
 
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 DATABASE_URL = os.getenv("DATABASE_URL", "sqlite:///./osu_bot.db")
 DISCORD_TOKEN = os.getenv("DISCORD_TOKEN")
 OSU_CLIENT_ID = os.getenv("OSU_CLIENT_ID")
@@ -37,18 +35,29 @@ if not DISCORD_TOKEN or not OSU_CLIENT_ID or not OSU_CLIENT_SECRET:
 
 intents = discord.Intents.default()
 intents.message_content = True
-
 bot = commands.Bot(command_prefix="&", intents=intents)
 
 storage = Storage(DATABASE_URL)
 osu = OsuApi(OSU_CLIENT_ID, OSU_CLIENT_SECRET)
 
 # =========================
-# Helper
+# Helpers
 # =========================
 
+def _mods_have_nf(mods) -> bool:
+    """
+    mods kann Liste von Strings oder Liste von Objekten mit 'acronym' sein.
+    Liefert True, wenn NF aktiv ist (egal, ob weitere Mods an sind).
+    """
+    if not mods:
+        return False
+    if isinstance(mods, list) and mods and isinstance(mods[0], dict):
+        acr = [str(m.get("acronym", "")).upper() for m in mods]
+    else:
+        acr = [str(m).upper() for m in mods]
+    return "NF" in acr
+
 async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User | None:
-    """Liefert verknüpften User; optional über osu-Username auflösen."""
     if username_opt:
         user = storage.get_user_by_osu_username(username_opt)
         if user:
@@ -66,10 +75,6 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
         return user
 
 def _parse_osu_score_time(s: dict) -> datetime | None:
-    """
-    Nimmt ended_at oder created_at und gibt einen UTC-naiven datetime zurück.
-    Wenn beides fehlt, None (wir speichern das Play NICHT).
-    """
     for key in ("ended_at", "created_at"):
         val = s.get(key)
         if val:
@@ -82,12 +87,12 @@ def _parse_osu_score_time(s: dict) -> datetime | None:
     return None
 
 async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
-    """Sichert, dass TopStats für den Monat vorhanden sind; berechnet sie falls nötig."""
     existing = storage.get_topstats(user.id, month_str)
     if existing:
         return existing
 
-    best = await osu.get_user_best(user.osu_user_id, limit=100)
+    # Vollständige Top-Best mit Pagination, explizit mode=osu
+    best = await osu.get_user_best(user.osu_user_id, limit=100, mode="osu")
     if not best:
         ts = TopStats(
             user_id=user.id, month=month_str,
@@ -96,16 +101,23 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
         storage.upsert_topstats(ts)
         return ts
 
+    # NF rausfiltern (egal, welche weiteren Mods)
+    best = [s for s in best if not _mods_have_nf(s.get("mods"))]
+
+    # Nach pp absteigend sortieren
     sorted_best = sorted(best, key=lambda s: float(s.get("pp") or 0.0), reverse=True)
+
+    # Top50-Schwelle: falls <50 übrig, 0
     top50_pp_threshold = float(sorted_best[49]["pp"]) if len(sorted_best) >= 50 else 0.0
 
+    # Top10 für TS
     top10 = sorted_best[:10]
     sr_vals = []
     miss_sum = 0
     for s in top10:
         sr = s.get("beatmap", {}).get("difficulty_rating")
         sr_vals.append(float(sr or 0.0))
-        miss_sum += int(s.get("statistics", {}).get("count_miss", 0))
+        miss_sum += int((s.get("statistics") or {}).get("count_miss", 0))
 
     top10_avg_star_raw = float(np.mean(sr_vals)) if sr_vals else 0.0
     TS = compute_TS(top10_avg_star_raw, miss_sum)
@@ -122,24 +134,23 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     return ts
 
 async def sync_recent_for_user(user: User):
-    """
-    Holt Recent Plays (24h Sichtbarkeit) und speichert nur erfolgreiche Runs.
-    Für neue Plays wird der Push Value direkt berechnet und mit persistiert.
-    """
-    rec = await osu.get_user_recent(user.osu_user_id, include_fails=True, limit=50)
+    rec = await osu.get_user_recent(user.osu_user_id, include_fails=True, limit=50, mode="osu")
     if not rec:
         return
 
     month_str = current_month_str_utc()
-    ts = await fetch_topstats_for_month(user, month_str)  # stellt TS + Top50 sicher
+    ts = await fetch_topstats_for_month(user, month_str)
 
     for s in rec:
+        # 1) Nur erfolgreiche Runs
         if s.get("passed") is False:
+            continue
+        # 2) Jede NF-Kombination ignorieren
+        if _mods_have_nf(s.get("mods")):
             continue
 
         ts_utc = _parse_osu_score_time(s)
         if ts_utc is None:
-            # Kein brauchbarer Zeitstempel -> nicht speichern
             continue
 
         beatmap = s.get("beatmap") or {}
@@ -149,7 +160,7 @@ async def sync_recent_for_user(user: User):
 
         sr = float(beatmap.get("difficulty_rating") or 0.0)
         total_len = float(beatmap.get("total_length") or 0.0)
-        acc = float(s.get("accuracy") or 0.0) * 100.0  # 0..1 -> %
+        acc = float(s.get("accuracy") or 0.0) * 100.0
         misses = int((s.get("statistics") or {}).get("count_miss", 0))
         pp = float(s.get("pp") or 0.0)
 
@@ -280,7 +291,7 @@ async def leaderboard(ctx: commands.Context, *args):
 
     title = "Leaderboard (alle Plays)" if scope_hours is None else f"Leaderboard (letzte {scope_hours}h)"
     header = f"**{title}**\n"
-    body = "\n".join(lines[:10])  # Top 10
+    body = "\n".join(lines[:10])
     footer = f"\nDein Rang: **#{me_rank}**" if me_rank is not None else ""
     await ctx.reply(header + body + footer)
 
@@ -298,11 +309,10 @@ async def stars(ctx: commands.Context, username: str | None = None):
         await ctx.reply("Keine Plays im aktuellen Monat gefunden.")
         return
 
-    # Star-Rating-Verteilung
-    star_vals = [p.star_rating for p in plays]
+    stars = [p.star_rating for p in plays]
     bins = np.arange(0.0, 10.0 + 0.25, 0.25)
     fig = plt.figure(figsize=(8, 4.5), dpi=140)
-    plt.hist(star_vals, bins=bins)
+    plt.hist(stars, bins=bins)
     plt.title("Star-Rating-Verteilung (aktueller Monat)")
     plt.xlabel("Sterne")
     plt.ylabel("Anzahl Plays")
@@ -316,21 +326,6 @@ async def stars(ctx: commands.Context, username: str | None = None):
 
     file = discord.File(fp=buf, filename="stars.png")
     await ctx.reply(content=f"Star-Distribution für **{user.osu_username}**", file=file)
-
-# ---- Admin-Tool zum Aufräumen von Testdaten ----
-@bot.command(name="wipe_plays")
-@commands.has_permissions(administrator=True)
-async def wipe_plays(ctx: commands.Context, username: str):
-    """&wipe_plays <osu-username> — löscht alle gespeicherten Plays dieses Users."""
-    u = storage.get_user_by_osu_username(username)
-    if not u:
-        await ctx.reply("Nutzer nicht gefunden.")
-        return
-    # brutale, aber effektive Kehrwoche:
-    from sqlalchemy import delete
-    with storage.session() as s:
-        s.execute(delete(Play).where(Play.user_id == u.id))
-    await ctx.reply(f"Alle Plays für **{username}** gelöscht.")
 
 # =========================
 # Main

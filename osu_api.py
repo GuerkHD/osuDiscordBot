@@ -14,19 +14,16 @@ class OsuApi:
         self._token: str | None = None
         self._token_exp: float = 0.0
         self._client = httpx.AsyncClient(timeout=20)
-        # Queue kann schon existieren, aber der Worker darf erst starten,
-        # wenn ein Event-Loop läuft.
+        # Queue existiert, Worker erst starten wenn Loop läuft
         self._queue: asyncio.Queue[Callable[[], Awaitable[Any]]] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
 
     async def _ensure_worker(self):
-        # Wird aus async-Kontexten aufgerufen (da gibt es einen laufenden Loop).
         if self._worker_task is None or self._worker_task.done():
             loop = asyncio.get_running_loop()
             self._worker_task = loop.create_task(self._queue_worker())
 
     async def aclose(self):
-        # Sauber schließen (optional, aber gut für Tests/Shutdown)
         try:
             if self._worker_task:
                 self._worker_task.cancel()
@@ -69,10 +66,9 @@ class OsuApi:
         self._token_exp = time.time() + int(data["expires_in"])
 
     async def _get(self, path: str, params: dict | None = None) -> Any:
-        await self._ensure_worker()  # <<<<< WICHTIG: Worker hier lazy starten
+        await self._ensure_worker()
         await self._ensure_token()
         headers = {"Authorization": f"Bearer {self._token}"}
-
         result_holder = {}
 
         async def do_request():
@@ -81,7 +77,6 @@ class OsuApi:
                 r.raise_for_status()
                 result_holder["data"] = r.json()
             except httpx.HTTPError:
-                # Backoff und Skip
                 for t in (0.5, 1.0, 2.0):
                     await asyncio.sleep(t)
                     try:
@@ -103,34 +98,33 @@ class OsuApi:
         await fut
         return result_holder.get("data")
 
-    # Rest wie gehabt ...
+    # -------- Public API wrappers --------
+
     async def get_user(self, identifier: str) -> dict | None:
+        # username oder id
         return await self._get(f"/users/{identifier}/osu")
 
-    async def get_user_best(self, user_id: int | str, limit: int = 100) -> list[dict]:
+    async def get_user_best(self, user_id: int | str, limit: int = 100, mode: str = "osu") -> list[dict]:
+        """
+        Holt bis zu 100 Best-Scores mit robuster Pagination via offset.
+        """
         scores: list[dict] = []
-        cursor = None
-        remaining = limit
-        while remaining > 0:
-            per_page = min(50, remaining)
-            params = {"limit": per_page}
-            if cursor:
-                params["cursor[page]"] = cursor
+        offset = 0
+        while len(scores) < limit:
+            per_page = min(50, limit - len(scores))  # v2 ist bei 50/100 limitiert
+            params = {"limit": per_page, "offset": offset, "mode": mode}
             data = await self._get(f"/users/{user_id}/scores/best", params=params)
             if not data:
                 break
             scores.extend(data)
-            if len(data) < per_page:
+            got = len(data)
+            if got < per_page:
                 break
-            remaining -= per_page
-            if len(data) == per_page:
-                cursor = (cursor or 1) + 1
-            else:
-                break
+            offset += got
         return scores
 
-    async def get_user_recent(self, user_id: int | str, include_fails: bool = True, limit: int = 50) -> list[dict]:
-        params = {"include_fails": int(include_fails), "limit": min(50, limit)}
+    async def get_user_recent(self, user_id: int | str, include_fails: bool = True, limit: int = 50, mode: str = "osu") -> list[dict]:
+        params = {"include_fails": int(include_fails), "limit": min(50, limit), "mode": mode}
         data = await self._get(f"/users/{user_id}/scores/recent", params=params)
         return data or []
 
