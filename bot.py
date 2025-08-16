@@ -2,6 +2,7 @@ from __future__ import annotations
 import os
 import io
 import asyncio
+import re
 from datetime import datetime, timezone
 
 import discord
@@ -39,6 +40,7 @@ bot = commands.Bot(command_prefix="&", intents=intents)
 
 storage = Storage(DATABASE_URL)
 osu = OsuApi(OSU_CLIENT_ID, OSU_CLIENT_SECRET)
+
 
 # =========================
 # Helpers
@@ -327,6 +329,16 @@ async def stars(ctx: commands.Context, username: str | None = None):
     file = discord.File(fp=buf, filename="stars.png")
     await ctx.reply(content=f"Star-Distribution für **{user.osu_username}**", file=file)
 
+@bot.event
+async def on_message(message):
+    if message.author == bot.user:
+        return
+
+    # Prüft, ob "ii" als eigenständiges Wort im Text vorkommt
+    if re.search(r'\bii\b', message.content):
+        await message.channel.send("Improvement index is a bad metric. You will not find fun in this game while chasing improvement. You will not make friends sharing your high ii.")
+
+    await bot.process_commands(message)
 # =========================
 # Main
 # =========================

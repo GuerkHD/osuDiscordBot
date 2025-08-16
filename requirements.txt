@@ -8,3 +8,4 @@ pytz
 python-dateutil
 matplotlib
 numpy
+re
