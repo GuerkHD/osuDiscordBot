@@ -93,7 +93,7 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     if existing:
         return existing
 
-    # Vollständige Top-Best mit Pagination, explizit mode=osu
+    # All osu tops for Top_Star
     best = await osu.get_user_best(user.osu_user_id, limit=100, mode="osu")
     if not best:
         ts = TopStats(
@@ -103,16 +103,16 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
         storage.upsert_topstats(ts)
         return ts
 
-    # NF rausfiltern (egal, welche weiteren Mods)
+    # filter NF
     best = [s for s in best if not _mods_have_nf(s.get("mods"))]
 
-    # Nach pp absteigend sortieren
+    # sort by pp
     sorted_best = sorted(best, key=lambda s: float(s.get("pp") or 0.0), reverse=True)
 
-    # Top50-Schwelle: falls <50 übrig, 0
+    # Top50 threshhold
     top50_pp_threshold = float(sorted_best[49]["pp"]) if len(sorted_best) >= 50 else 0.0
 
-    # Top10 für TS
+    # Top10 for TS
     top10 = sorted_best[:10]
     sr_vals = []
     miss_sum = 0
@@ -144,10 +144,10 @@ async def sync_recent_for_user(user: User):
     ts = await fetch_topstats_for_month(user, month_str)
 
     for s in rec:
-        # 1) Nur erfolgreiche Runs
+        # 1) Only passed runs
         if s.get("passed") is False:
             continue
-        # 2) Jede NF-Kombination ignorieren
+        # 2) JIgnore all NF mixes
         if _mods_have_nf(s.get("mods")):
             continue
 
@@ -212,8 +212,8 @@ async def on_ready():
     sched = build_scheduler()
     add_cron_jobs(
         sched,
-        lambda: asyncio.create_task(half_hour_recent_sync()),
-        lambda: asyncio.create_task(monthly_top_init()),
+        lambda: asyncio.run_coroutine_threadsafe(half_hour_recent_sync(), bot.loop),
+        lambda: asyncio.run_coroutine_threadsafe(monthly_top_init(), bot.loop),
     )
     sched.start()
     print(f"Bot online als {bot.user}")
@@ -226,10 +226,10 @@ async def register(ctx: commands.Context, arg: str | None = None):
     if not data and arg:
         data = await osu.get_user(arg)
     if not data:
-        await ctx.reply("Konnte osu!-Nutzer nicht finden.")
+        await ctx.reply("Could not find osu!-user.")
         return
     user = storage.upsert_user(str(ctx.author.id), str(data["id"]), data["username"])
-    await ctx.reply(f"Verknüpft mit osu!-Account **{user.osu_username}** (ID {user.osu_user_id}).")
+    await ctx.reply(f"Registered with osu!-Account **{user.osu_username}** (ID {user.osu_user_id}).")
 
 @bot.command(name="push")
 async def push(ctx: commands.Context, username: str | None = None):
@@ -239,7 +239,7 @@ async def push(ctx: commands.Context, username: str | None = None):
         return
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=None)
-    await ctx.reply(f"Kumulative Push Value für **{user.osu_username}**: **{total:.2f}**")
+    await ctx.reply(f"Push Value for **{user.osu_username}**: **{total:.2f}**")
 
 @bot.command(name="push_session")
 async def push_session(ctx: commands.Context, username: str | None = None):
@@ -249,7 +249,7 @@ async def push_session(ctx: commands.Context, username: str | None = None):
         return
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=12)
-    await ctx.reply(f"Push Value (letzte 12h) für **{user.osu_username}**: **{total:.2f}**")
+    await ctx.reply(f"Push Value (last 12h) für **{user.osu_username}**: **{total:.2f}**")
 
 @bot.command(name="leaderboard")
 async def leaderboard(ctx: commands.Context, *args):
@@ -291,10 +291,10 @@ async def leaderboard(ctx: commands.Context, *args):
         })
     storage.snapshot_leaderboard(scope_hours, snap_entries)
 
-    title = "Leaderboard (alle Plays)" if scope_hours is None else f"Leaderboard (letzte {scope_hours}h)"
+    title = "Leaderboard" if scope_hours is None else f"Leaderboard (last {scope_hours}h)"
     header = f"**{title}**\n"
     body = "\n".join(lines[:10])
-    footer = f"\nDein Rang: **#{me_rank}**" if me_rank is not None else ""
+    footer = f"\nYour rank: **#{me_rank}**" if me_rank is not None else ""
     await ctx.reply(header + body + footer)
 
 @bot.command(name="stars")
@@ -308,16 +308,16 @@ async def stars(ctx: commands.Context, username: str | None = None):
     now = utcnow_naive()
     plays = storage.plays_in_month(user.id, now.year, now.month)
     if not plays:
-        await ctx.reply("Keine Plays im aktuellen Monat gefunden.")
+        await ctx.reply("No plays found this month.")
         return
 
     stars = [p.star_rating for p in plays]
     bins = np.arange(0.0, 10.0 + 0.25, 0.25)
     fig = plt.figure(figsize=(8, 4.5), dpi=140)
     plt.hist(stars, bins=bins)
-    plt.title("Star-Rating-Verteilung (aktueller Monat)")
-    plt.xlabel("Sterne")
-    plt.ylabel("Anzahl Plays")
+    plt.title("Star-Rating-Distribution (this month)")
+    plt.xlabel("Stars")
+    plt.ylabel("Amount Plays")
     plt.xlim(0, 10)
     plt.tight_layout()
 
@@ -327,14 +327,14 @@ async def stars(ctx: commands.Context, username: str | None = None):
     buf.seek(0)
 
     file = discord.File(fp=buf, filename="stars.png")
-    await ctx.reply(content=f"Star-Distribution für **{user.osu_username}**", file=file)
+    await ctx.reply(content=f"Star-Distribution for **{user.osu_username}**", file=file)
 
 @bot.event
 async def on_message(message):
     if message.author == bot.user:
         return
 
-    # Prüft, ob "ii" als eigenständiges Wort im Text vorkommt
+    # Checks for ii mentions
     if re.search(r'\bii\b', message.content):
         await message.channel.send("Improvement index is a bad metric. You will not find fun in this game while chasing improvement. You will not make friends sharing your high ii.")
 
@@ -348,4 +348,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-#test

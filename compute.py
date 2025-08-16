@@ -23,7 +23,7 @@ def compute_push_value(inputs: PushInputs) -> float:
     length = inputs.map_length_seconds
     Top50 = inputs.top50_pp_threshold
 
-    # Cases in Reihenfolge der Spezifikation
+    # Cases in order of specification
     if (pp > Top50) and (SR < TS):
         return max(-100.0, -10.0 * (TS - SR))
     if (pp > Top50) and (SR >= TS):

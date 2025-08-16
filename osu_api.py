@@ -14,7 +14,7 @@ class OsuApi:
         self._token: str | None = None
         self._token_exp: float = 0.0
         self._client = httpx.AsyncClient(timeout=20)
-        # Queue existiert, Worker erst starten wenn Loop läuft
+        # Queue exists, only start worker when loops says it
         self._queue: asyncio.Queue[Callable[[], Awaitable[Any]]] = asyncio.Queue()
         self._worker_task: asyncio.Task | None = None
 
