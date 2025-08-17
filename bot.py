@@ -350,7 +350,16 @@ async def on_message(message):
     if re.search(r'\bii\b', message.content):
         await message.channel.send("Improvement index is a bad metric. You will not find fun in this game while chasing improvement. You will not make friends sharing your high ii.")
 
+    if re.search(r'727', message.content):
+        emoji_url = "https://cdn.discordapp.com/emojis/816356638767972402.gif"
+        embed = discord.Embed(title="WYSI!!")
+        embed.set_image(url=emoji_url)
+        await message.channel.send(embed=embed)
+
     await bot.process_commands(message)
+
+
+
 # =========================
 # Main
 # =========================
