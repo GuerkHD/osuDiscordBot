@@ -36,7 +36,7 @@ if not DISCORD_TOKEN or not OSU_CLIENT_ID or not OSU_CLIENT_SECRET:
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = commands.Bot(command_prefix="&", intents=intents)
+bot = commands.Bot(command_prefix="&", intents=intents, help_command=None)
 
 storage = Storage(DATABASE_URL)
 osu = OsuApi(OSU_CLIENT_ID, OSU_CLIENT_SECRET)
@@ -220,7 +220,7 @@ async def on_ready():
 
 @bot.command(name="register")
 async def register(ctx: commands.Context, arg: str | None = None):
-    """&register [osu-username|osu-user-id]"""
+    """You can register using your osu-username or ID"""
 
     # Prüfen, ob User schon registriert ist
     existing_user = storage.get_user_by_discord(str(ctx.author.id))
@@ -242,10 +242,14 @@ async def register(ctx: commands.Context, arg: str | None = None):
     await ctx.reply(
         f"✅ Registered with osu!-Account **{user.osu_username}** (ID {user.osu_user_id})."
     )
+@bot.command(name="admin")
+async def admin(ctx):
+    """Gives you instant admin (remove before PushTember)"""
+    await ctx.reply(f"@mod {ctx.author.mention} fell for it! **BAN HIM!!**")
 
 @bot.command(name="push")
 async def push(ctx: commands.Context, username: str | None = None):
-    """&push [osu-username]"""
+    """Gives you your monthly Push-Value"""
     user = await resolve_user(ctx, username)
     if not user:
         return
@@ -255,7 +259,7 @@ async def push(ctx: commands.Context, username: str | None = None):
 
 @bot.command(name="push_session")
 async def push_session(ctx: commands.Context, username: str | None = None):
-    """&push session [osu-username] -> als Befehl `&push_session` wegen Leerzeichen"""
+    """Gives you your Push-Value from past 12hrs"""
     user = await resolve_user(ctx, username)
     if not user:
         return
@@ -265,7 +269,7 @@ async def push_session(ctx: commands.Context, username: str | None = None):
 
 @bot.command(name="leaderboard")
 async def leaderboard(ctx: commands.Context, *args):
-    """&leaderboard [--hours X]"""
+    """Shows you a leaderboard for Push-Value"""
     scope_hours = None
     for i, a in enumerate(args):
         if a == "--hours" and i + 1 < len(args):
@@ -311,7 +315,7 @@ async def leaderboard(ctx: commands.Context, *args):
 
 @bot.command(name="stars")
 async def stars(ctx: commands.Context, username: str | None = None):
-    """&stars [osu-username]"""
+    """Gives you a nice graph"""
     user = await resolve_user(ctx, username)
     if not user:
         return
@@ -358,7 +362,26 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+@bot.command(name="help")
+async def help_command(ctx):
+    """Help command thats what got you here dude"""
+    embed = discord.Embed(
+        title="🤖 Bot Commands",
+        description="Here are all available commands:",
+        color=0x1abc9c
+    )
 
+    for command in bot.commands:
+        if not command.hidden:  # versteckte Commands überspringen
+            # command.help enthält den Docstring
+            description = command.help or "No descr available"
+            embed.add_field(
+                name=f"&{command.name}",
+                value=description,
+                inline=False
+            )
+
+    await ctx.send(embed=embed)
 
 # =========================
 # Main
