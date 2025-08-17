@@ -68,13 +68,10 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
         if not data:
             await ctx.reply("User not found")
             return None
-        user = storage.upsert_user(str(ctx.author.id), str(data["id"]), data["username"])
-        return user
-    else:
-        user = storage.get_user_by_discord(str(ctx.author.id))
-        if not user:
-            await ctx.reply("Please use `&register [osu-username|osu-user-id]` first.")
-        return user
+        else:
+        
+            await ctx.reply("User not registered. Please use `&register [osu-username|osu-user-id]` first.")
+            return user
 
 def _parse_osu_score_time(s: dict) -> datetime | None:
     for key in ("ended_at", "created_at"):
