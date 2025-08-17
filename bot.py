@@ -66,14 +66,14 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
             return user
         data = await osu.get_user(username_opt)
         if not data:
-            await ctx.reply("Nutzer nicht gefunden.")
+            await ctx.reply("User not found")
             return None
         user = storage.upsert_user(str(ctx.author.id), str(data["id"]), data["username"])
         return user
     else:
         user = storage.get_user_by_discord(str(ctx.author.id))
         if not user:
-            await ctx.reply("Bitte zuerst `&register [osu-username|osu-user-id]` ausführen.")
+            await ctx.reply("Please use `&register [osu-username|osu-user-id]` first.")
         return user
 
 def _parse_osu_score_time(s: dict) -> datetime | None:
@@ -221,15 +221,27 @@ async def on_ready():
 @bot.command(name="register")
 async def register(ctx: commands.Context, arg: str | None = None):
     """&register [osu-username|osu-user-id]"""
+
+    # Prüfen, ob User schon registriert ist
+    existing_user = storage.get_user_by_discord(str(ctx.author.id))
+    if existing_user:
+        await ctx.reply(
+            f'❌ You are already registered as **{existing_user.osu_username}** (ID {existing_user.osu_user_id}).'
+        )
+        return
+
     target = arg or str(ctx.author.id)
     data = await osu.get_user(target)
     if not data and arg:
         data = await osu.get_user(arg)
     if not data:
-        await ctx.reply("Could not find osu!-user.")
+        await ctx.reply("❌ Could not find osu!-user.")
         return
+
     user = storage.upsert_user(str(ctx.author.id), str(data["id"]), data["username"])
-    await ctx.reply(f"Registered with osu!-Account **{user.osu_username}** (ID {user.osu_user_id}).")
+    await ctx.reply(
+        f"✅ Registered with osu!-Account **{user.osu_username}** (ID {user.osu_user_id})."
+    )
 
 @bot.command(name="push")
 async def push(ctx: commands.Context, username: str | None = None):
