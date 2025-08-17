@@ -25,13 +25,17 @@ def compute_push_value(inputs: PushInputs) -> float:
 
     # Cases in order of specification
     if (pp > Top50) and (SR < TS):
-        return max(-100.0, -10.0 * (TS - SR))
+        return max(-10000.0, -10000.0 * (TS - SR))
     if (pp > Top50) and (SR >= TS):
         return 0.0
     if (pp <= Top50) and (acc > 95.0):
         return 0.0
-    if (pp <= Top50) and (85.0 <= acc <= 95.0):
-        return 1.0 * length
-    if (pp <= Top50) and (acc < 85.0):
-        return 0.5 * length
+    if (pp <= Top50) and (92.0 <= acc <= 95.0):
+        return (95 - acc / 3) * length
+    if (pp <= Top50) and (85.0 <= acc < 92.0):
+        return length
+    if (pp <= Top50) and (85.0 < acc <= 75.0):
+        return (0.08 * acc - 5,8) * length
+    if (pp <= Top50) and (acc < 75.0):
+        return 0.2 * length
     return 0.0
