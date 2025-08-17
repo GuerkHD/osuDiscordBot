@@ -69,9 +69,13 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
             await ctx.reply("User not found")
             return None
         else:
-        
-            await ctx.reply("User not registered. Please use `&register [osu-username|osu-user-id]` first.")
-            return user
+                await ctx.reply("User not registered. Please use `&register [osu-username|osu-user-id]` first.")
+                return None
+    else: 
+        user = storage.get_user_by_discord(str(ctx.author.id))
+        if not user:
+            await ctx.reply("Please use `&register [osu-username|osu-user-id]` first.")
+        return user
 
 def _parse_osu_score_time(s: dict) -> datetime | None:
     for key in ("ended_at", "created_at"):
@@ -262,7 +266,7 @@ async def push_session(ctx: commands.Context, username: str | None = None):
         return
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=12)
-    await ctx.reply(f"Push Value (last 12h) für **{user.osu_username}**: **{total:.2f}**")
+    await ctx.reply(f"Push Value (last 12h) for **{user.osu_username}**: **{total:.2f}**")
 
 @bot.command(name="leaderboard")
 async def leaderboard(ctx: commands.Context, *args):
