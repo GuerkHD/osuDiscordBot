@@ -355,6 +355,24 @@ async def on_message(message):
     if re.search(r'\bii\b', message.content):
         await message.channel.send("Improvement index is a bad metric. You will not find fun in this game while chasing improvement. You will not make friends sharing your high ii.")
 
+    if re.search(r'French', message.content):
+        await message.channel.send(":french_bread:")
+
+    if re.search(r'french', message.content):
+        await message.channel.send(":french_bread:")
+
+    if re.search(r'Kev', message.content):
+        await message.channel.send("Did I hear cope?")
+
+    if re.search(r'sad', message.content):
+        await message.channel.send(":wilted_rose:")
+
+    if re.search(r'goat', message.content):
+        await message.channel.send(":goat:")
+
+    if re.search(r'pain', message.content):
+        await message.channel.send(":adhesive_bandage:")
+
     if re.search(r'727', message.content):
         emoji_url = "https://cdn.discordapp.com/emojis/816356638767972402.gif"
         embed = discord.Embed(title="WYSI!!")
