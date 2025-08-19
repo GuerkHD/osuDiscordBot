@@ -123,7 +123,7 @@ class OsuApi:
             offset += got
         return scores
 
-    async def get_user_recent(self, user_id: int | str, include_fails: bool = True, limit: int = 50, mode: str = "osu") -> list[dict]:
+    async def get_user_recent(self, user_id: int | str, include_fails: bool = False, limit: int = 50, mode: str = "osu") -> list[dict]:
         params = {"include_fails": int(include_fails), "limit": min(50, limit), "mode": mode}
         data = await self._get(f"/users/{user_id}/scores/recent", params=params)
         return data or []

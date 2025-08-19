@@ -373,6 +373,12 @@ async def on_message(message):
     if re.search(r'pain', message.content):
         await message.channel.send(":adhesive_bandage:")
 
+    if re.search(r'farm', message.content):
+        await message.channel.send("🚨 FARMING IN PUSHTEMBER?? 🚨")
+
+    if re.search(r'\bpaly\b', message.content):
+        await message.channel.send("Paly? I do not think this is correct.")
+
     if re.search(r'727', message.content):
         emoji_url = "https://cdn.discordapp.com/emojis/816356638767972402.gif"
         embed = discord.Embed(title="WYSI!!")
