@@ -137,7 +137,7 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     return ts
 
 async def sync_recent_for_user(user: User):
-    rec = await osu.get_user_recent(user.osu_user_id, include_fails=True, limit=50, mode="osu")
+    rec = await osu.get_user_recent(user.osu_user_id, limit=50, mode="osu")
     if not rec:
         return
 
