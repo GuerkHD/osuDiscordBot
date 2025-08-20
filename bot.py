@@ -367,6 +367,12 @@ async def on_message(message):
     if re.search(r'sad', message.content):
         await message.channel.send(":wilted_rose:")
 
+    if re.search(r'cope', message.content):
+        await message.channel.send("Stop coping and start pushing!")
+
+    if re.search(r'sybau', message.content):
+        await message.channel.send("Stay young, beautiful and unique :dancer:")
+
     if re.search(r'goat', message.content):
         await message.channel.send(":goat:")
 
