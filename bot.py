@@ -1,4 +1,7 @@
 from __future__ import annotations
+from dateutil import parser
+import numpy as np
+import matplotlib.pyplot as plt
 import os
 import io
 import asyncio
@@ -18,11 +21,9 @@ from utils import current_month_str_utc, utcnow_naive
 
 # Histogramm
 import matplotlib
-matplotlib.use("Agg")
-import matplotlib.pyplot as plt
-import numpy as np
 
-from dateutil import parser
+matplotlib.use("Agg")
+
 
 load_dotenv()
 
@@ -32,7 +33,9 @@ OSU_CLIENT_ID = os.getenv("OSU_CLIENT_ID")
 OSU_CLIENT_SECRET = os.getenv("OSU_CLIENT_SECRET")
 
 if not DISCORD_TOKEN or not OSU_CLIENT_ID or not OSU_CLIENT_SECRET:
-    raise RuntimeError("Bitte .env korrekt setzen: DISCORD_TOKEN, OSU_CLIENT_ID, OSU_CLIENT_SECRET")
+    raise RuntimeError(
+        "Bitte .env korrekt setzen: DISCORD_TOKEN, OSU_CLIENT_ID, OSU_CLIENT_SECRET"
+    )
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -45,6 +48,7 @@ osu = OsuApi(OSU_CLIENT_ID, OSU_CLIENT_SECRET)
 # =========================
 # Helpers
 # =========================
+
 
 def _mods_have_nf(mods) -> bool:
     """
@@ -59,6 +63,7 @@ def _mods_have_nf(mods) -> bool:
         acr = [str(m).upper() for m in mods]
     return "NF" in acr
 
+
 async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User | None:
     if username_opt:
         user = storage.get_user_by_osu_username(username_opt)
@@ -69,13 +74,16 @@ async def resolve_user(ctx: commands.Context, username_opt: str | None) -> User 
             await ctx.reply("User not found")
             return None
         else:
-                await ctx.reply("User not registered. Please use `&register [osu-username|osu-user-id]` first.")
-                return None
-    else: 
+            await ctx.reply(
+                "User not registered. Please use `&register [osu-username|osu-user-id]` first."
+            )
+            return None
+    else:
         user = storage.get_user_by_discord(str(ctx.author.id))
         if not user:
             await ctx.reply("Please use `&register [osu-username|osu-user-id]` first.")
         return user
+
 
 def _parse_osu_score_time(s: dict) -> datetime | None:
     for key in ("ended_at", "created_at"):
@@ -89,6 +97,7 @@ def _parse_osu_score_time(s: dict) -> datetime | None:
             return dt
     return None
 
+
 async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     existing = storage.get_topstats(user.id, month_str)
     if existing:
@@ -98,8 +107,12 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     best = await osu.get_user_best(user.osu_user_id, limit=100, mode="osu")
     if not best:
         ts = TopStats(
-            user_id=user.id, month=month_str,
-            top10_avg_star_raw=0.0, top10_miss_sum=0, top_star_TS=0.0, top50_pp_threshold=0.0
+            user_id=user.id,
+            month=month_str,
+            top10_avg_star_raw=0.0,
+            top10_miss_sum=0,
+            top_star_TS=0.0,
+            top50_pp_threshold=0.0,
         )
         storage.upsert_topstats(ts)
         return ts
@@ -136,6 +149,7 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     storage.upsert_topstats(ts)
     return ts
 
+
 async def sync_recent_for_user(user: User):
     rec = await osu.get_user_recent(user.osu_user_id, limit=50, mode="osu")
     if not rec:
@@ -167,10 +181,16 @@ async def sync_recent_for_user(user: User):
         misses = int((s.get("statistics") or {}).get("count_miss", 0))
         pp = float(s.get("pp") or 0.0)
 
-        pv = compute_push_value(PushInputs(
-            pp=pp, SR=sr, TS=ts.top_star_TS, accuracy_percent=acc,
-            map_length_seconds=total_len, top50_pp_threshold=ts.top50_pp_threshold
-        ))
+        pv = compute_push_value(
+            PushInputs(
+                pp=pp,
+                SR=sr,
+                TS=ts.top_star_TS,
+                accuracy_percent=acc,
+                map_length_seconds=total_len,
+                top50_pp_threshold=ts.top50_pp_threshold,
+            )
+        )
 
         p = Play(
             user_id=user.id,
@@ -187,6 +207,7 @@ async def sync_recent_for_user(user: User):
         )
         storage.insert_play_if_new(p)
 
+
 async def half_hour_recent_sync():
     users = storage.get_all_users()
     for u in users:
@@ -194,6 +215,7 @@ async def half_hour_recent_sync():
             await sync_recent_for_user(u)
         except Exception:
             continue
+
 
 async def monthly_top_init():
     users = storage.get_all_users()
@@ -204,9 +226,11 @@ async def monthly_top_init():
         except Exception:
             continue
 
+
 # =========================
 # Events & Commands
 # =========================
+
 
 @bot.event
 async def on_ready():
@@ -219,34 +243,49 @@ async def on_ready():
     sched.start()
     print(f"Bot online als {bot.user}")
 
+
 @bot.command(name="register")
-async def register(ctx: commands.Context, arg: str | None = None):
+async def register(ctx: commands.Context, *args):
     """You can register using your osu-username or ID"""
 
-    # Prüfen, ob User schon registriert ist
-    existing_user = storage.get_user_by_discord(str(ctx.author.id))
-    if existing_user:
+    # Args as param is now a tuple of n length, where n is the no. of args passed
+    # here, we split the args into one big arg - ("Mach", "84") -> "Mach 84"
+    arg = " ".join(args) if args else None
+
+    # we should not do anything if there are no args. most likely than not this command will fail otherwise
+    if not arg:
         await ctx.reply(
-            f'❌ You are already registered as **{existing_user.osu_username}** (ID {existing_user.osu_user_id}).'
+            "❌ Please provide your osu! username or user ID. Usage: `&register <osu-username|osu-user-id>`"
         )
         return
 
-    target = arg or str(ctx.author.id)
-    data = await osu.get_user(target)
-    if not data and arg:
-        data = await osu.get_user(arg)
-    if not data:
+    # Prüfen, ob User schon registriert ist
+    existing_user = storage.get_user_by_discord(str(ctx.author.id))
+
+    if existing_user:  # if a user is already registered, inform
+        await ctx.reply(
+            f"❌ You are already registered as **{existing_user.osu_username}** (ID {existing_user.osu_user_id})."
+        )
+        return
+
+    osu_data = await osu.get_user(arg)
+    if not osu_data:  # if we cannot find the user via osu!api, inform
         await ctx.reply("❌ Could not find osu!-user.")
         return
 
-    user = storage.upsert_user(str(ctx.author.id), str(data["id"]), data["username"])
+    user = storage.upsert_user(
+        str(ctx.author.id), str(osu_data["id"]), osu_data["username"]
+    )
     await ctx.reply(
         f"✅ Registered with osu!-Account **{user.osu_username}** (ID {user.osu_user_id})."
     )
+
+
 @bot.command(name="admin")
 async def admin(ctx):
     """Gives you instant admin (remove before PushTember)"""
     await ctx.reply(f"@mod {ctx.author.mention} fell for it! **BAN HIM!!**")
+
 
 @bot.command(name="push")
 async def push(ctx: commands.Context, username: str | None = None):
@@ -258,6 +297,7 @@ async def push(ctx: commands.Context, username: str | None = None):
     total = storage.cumulative_push(user.id, scope_hours=None)
     await ctx.reply(f"Push Value for **{user.osu_username}**: **{total:.2f}**")
 
+
 @bot.command(name="push_session")
 async def push_session(ctx: commands.Context, username: str | None = None):
     """Gives you your Push-Value from past 12hrs"""
@@ -266,7 +306,10 @@ async def push_session(ctx: commands.Context, username: str | None = None):
         return
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=12)
-    await ctx.reply(f"Push Value (last 12h) for **{user.osu_username}**: **{total:.2f}**")
+    await ctx.reply(
+        f"Push Value (last 12h) for **{user.osu_username}**: **{total:.2f}**"
+    )
+
 
 @bot.command(name="leaderboard")
 async def leaderboard(ctx: commands.Context, *args):
@@ -300,19 +343,24 @@ async def leaderboard(ctx: commands.Context, *args):
     snap_entries = []
     for r, (name, val) in enumerate(entries, start=1):
         u = storage.get_user_by_osu_username(name)
-        snap_entries.append({
-            "user_id": u.id if u else None,
-            "osu_username": name,
-            "cumulative_push_value": val,
-            "rank": r
-        })
+        snap_entries.append(
+            {
+                "user_id": u.id if u else None,
+                "osu_username": name,
+                "cumulative_push_value": val,
+                "rank": r,
+            }
+        )
     storage.snapshot_leaderboard(scope_hours, snap_entries)
 
-    title = "Leaderboard" if scope_hours is None else f"Leaderboard (last {scope_hours}h)"
+    title = (
+        "Leaderboard" if scope_hours is None else f"Leaderboard (last {scope_hours}h)"
+    )
     header = f"**{title}**\n"
     body = "\n".join(lines[:10])
     footer = f"\nYour rank: **#{me_rank}**" if me_rank is not None else ""
     await ctx.reply(header + body + footer)
+
 
 @bot.command(name="stars")
 async def stars(ctx: commands.Context, username: str | None = None):
@@ -346,46 +394,40 @@ async def stars(ctx: commands.Context, username: str | None = None):
     file = discord.File(fp=buf, filename="stars.png")
     await ctx.reply(content=f"Star-Distribution for **{user.osu_username}**", file=file)
 
+
 @bot.event
 async def on_message(message):
+    # appreciate these easter eggs, but we don't need that many if-statements :')
+
     if message.author == bot.user:
         return
 
-    # Checks for ii mentions
-    if re.search(r'\bii\b', message.content):
-        await message.channel.send("Improvement index is a bad metric. You will not find fun in this game while chasing improvement. You will not make friends sharing your high ii.")
+    # dictionary stores all commands in one place
+    triggers = [
+        (
+            r"\bii\b",
+            "Improvement index is a bad metric. You will not find fun in this game while chasing improvement. You will not make friends sharing your high ii.",
+        ),
+        (r"French", ":french_bread:"),
+        (r"french", ":french_bread:"),
+        (r"Kev", "Did I hear cope?"),
+        (r"sad", ":wilted_rose:"),
+        (r"cope", "Stop coping and start pushing!"),
+        (r"sybau", "Stay young, beautiful and unique :dancer:"),
+        (r"goat", ":goat:"),
+        (r"pain", ":adhesive_bandage:"),
+        (r"farm", "🚨 FARMING IN PUSHTEMBER?? 🚨"),
+        (r"\bpaly\b", "Paly? I do not think this is correct."),
+    ]
 
-    if re.search(r'French', message.content):
-        await message.channel.send(":french_bread:")
+    # for each pattern and response, check if the message content contains any
+    for pattern, response in triggers:
+        if re.search(pattern, message.content):
+            await message.channel.send(response)
+            break
 
-    if re.search(r'french', message.content):
-        await message.channel.send(":french_bread:")
-
-    if re.search(r'Kev', message.content):
-        await message.channel.send("Did I hear cope?")
-
-    if re.search(r'sad', message.content):
-        await message.channel.send(":wilted_rose:")
-
-    if re.search(r'cope', message.content):
-        await message.channel.send("Stop coping and start pushing!")
-
-    if re.search(r'sybau', message.content):
-        await message.channel.send("Stay young, beautiful and unique :dancer:")
-
-    if re.search(r'goat', message.content):
-        await message.channel.send(":goat:")
-
-    if re.search(r'pain', message.content):
-        await message.channel.send(":adhesive_bandage:")
-
-    if re.search(r'farm', message.content):
-        await message.channel.send("🚨 FARMING IN PUSHTEMBER?? 🚨")
-
-    if re.search(r'\bpaly\b', message.content):
-        await message.channel.send("Paly? I do not think this is correct.")
-
-    if re.search(r'727', message.content):
+    # special case for 727, as it produces an embed
+    if re.search(r"727", message.content):
         emoji_url = "https://cdn.discordapp.com/emojis/816356638767972402.gif"
         embed = discord.Embed(title="WYSI!!")
         embed.set_image(url=emoji_url)
@@ -393,33 +435,33 @@ async def on_message(message):
 
     await bot.process_commands(message)
 
+
 @bot.command(name="help")
 async def help_command(ctx):
     """Help command thats what got you here dude"""
     embed = discord.Embed(
         title="🤖 Bot Commands",
         description="Here are all available commands:",
-        color=0x1abc9c
+        color=0x1ABC9C,
     )
 
     for command in bot.commands:
         if not command.hidden:  # versteckte Commands überspringen
             # command.help enthält den Docstring
             description = command.help or "No descr available"
-            embed.add_field(
-                name=f"&{command.name}",
-                value=description,
-                inline=False
-            )
+            embed.add_field(name=f"&{command.name}", value=description, inline=False)
 
     await ctx.send(embed=embed)
+
 
 # =========================
 # Main
 # =========================
 
+
 def main():
     bot.run(DISCORD_TOKEN)
+
 
 if __name__ == "__main__":
     main()

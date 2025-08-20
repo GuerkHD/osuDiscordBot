@@ -1,3 +1,5 @@
 ﻿.env
 __pycache__/
 osu_bot.sqlite3
+.venv
+osu_bot.db
