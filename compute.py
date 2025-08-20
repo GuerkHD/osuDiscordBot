@@ -35,7 +35,7 @@ def compute_push_value(inputs: PushInputs) -> float:
     if (pp <= Top50) and (85.0 <= acc < 92.0):
         return length
     if (pp <= Top50) and (75.0 <= acc < 85.0):
-        return (0.08 * acc - 5,8) * length
+        return (0.08 * acc - 5.8) * length
     if (pp <= Top50) and (acc < 75.0):
         return 0.2 * length
     return 0.0
