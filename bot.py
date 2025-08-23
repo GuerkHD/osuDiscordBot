@@ -15,6 +15,7 @@ from dotenv import load_dotenv
 from storage import Storage
 from models import User, Play, TopStats
 from osu_api import OsuApi
+from osu_http import OsuHttpClient
 from compute import compute_TS, compute_push_value, PushInputs
 from scheduler import build_scheduler, add_cron_jobs
 from utils import current_month_str_utc, utcnow_naive
@@ -42,7 +43,8 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="&", intents=intents, help_command=None)
 
 storage = Storage(DATABASE_URL)
-osu = OsuApi(OSU_CLIENT_ID, OSU_CLIENT_SECRET)
+osu_http = OsuHttpClient(OSU_CLIENT_ID, OSU_CLIENT_SECRET)
+osu = OsuApi(osu_http)
 
 
 # =========================
@@ -151,35 +153,36 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
 
 
 async def sync_recent_for_user(user: User):
-    rec = await osu.get_user_recent(user.osu_user_id, limit=50, mode="osu")
-    if not rec:
+    recent_plays = await osu.get_user_recent(user.osu_user_id, limit=50, mode="osu")
+
+    if not recent_plays:
         return
 
     month_str = current_month_str_utc()
     ts = await fetch_topstats_for_month(user, month_str)
 
-    for s in rec:
+    for plays in recent_plays:
         # 1) Only passed runs
-        if s.get("passed") is False:
+        if plays.get("passed") is False:
             continue
-        # 2) JIgnore all NF mixes
-        if _mods_have_nf(s.get("mods")):
+        # 2) Ignore all NF mixes
+        if _mods_have_nf(plays.get("mods")):
             continue
 
-        ts_utc = _parse_osu_score_time(s)
+        ts_utc = _parse_osu_score_time(plays)
         if ts_utc is None:
             continue
 
-        beatmap = s.get("beatmap") or {}
+        beatmap = plays.get("beatmap") or {}
         beatmap_id = str(beatmap.get("id") or "")
         if not beatmap_id:
             continue
 
         sr = float(beatmap.get("difficulty_rating") or 0.0)
         total_len = float(beatmap.get("total_length") or 0.0)
-        acc = float(s.get("accuracy") or 0.0) * 100.0
-        misses = int((s.get("statistics") or {}).get("count_miss", 0))
-        pp = float(s.get("pp") or 0.0)
+        acc = float(plays.get("accuracy") or 0.0) * 100.0
+        misses = int((plays.get("statistics") or {}).get("count_miss", 0))
+        pp = float(plays.get("pp") or 0.0)
 
         pv = compute_push_value(
             PushInputs(
@@ -452,6 +455,17 @@ async def help_command(ctx):
             embed.add_field(name=f"&{command.name}", value=description, inline=False)
 
     await ctx.send(embed=embed)
+
+
+@bot.event
+async def on_command_error(ctx, error):
+    if isinstance(error, commands.CommandNotFound):
+        await ctx.reply(
+            "❌ Command not found. Use `&help` to see all available commands."
+        )
+    else:
+        # Optionally handle other errors or re-raise
+        raise error
 
 
 # =========================
