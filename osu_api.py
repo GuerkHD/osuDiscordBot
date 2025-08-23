@@ -3,9 +3,9 @@ import asyncio
 import time
 from typing import Any, Callable, Awaitable
 import httpx
-from datetime import datetime, timezone
 
 OSU_BASE = "https://osu.ppy.sh/api/v2"
+
 
 class OsuApi:
     def __init__(self, client_id: str, client_secret: str):
@@ -73,14 +73,61 @@ class OsuApi:
 
         async def do_request():
             try:
-                r = await self._client.get(f"{OSU_BASE}{path}", params=params, headers=headers)
+                r = await self._client.get(
+                    f"{OSU_BASE}{path}", params=params, headers=headers
+                )
                 r.raise_for_status()
                 result_holder["data"] = r.json()
             except httpx.HTTPError:
                 for t in (0.5, 1.0, 2.0):
                     await asyncio.sleep(t)
                     try:
-                        r2 = await self._client.get(f"{OSU_BASE}{path}", params=params, headers=headers)
+                        r2 = await self._client.get(
+                            f"{OSU_BASE}{path}", params=params, headers=headers
+                        )
+                        r2.raise_for_status()
+                        result_holder["data"] = r2.json()
+                        return
+                    except httpx.HTTPError:
+                        continue
+                result_holder["data"] = None
+
+        fut = asyncio.get_running_loop().create_future()
+
+        async def jobwrap():
+            await do_request()
+            fut.set_result(True)
+
+        await self._queue.put(jobwrap)
+        await fut
+        return result_holder.get("data")
+
+    # same style as GET, except we pass a body instead of headers
+    async def _post(
+        self, path: str, params: dict | None = None, body: dict | None = None
+    ) -> Any:
+        await self._ensure_worker()
+        await self._ensure_token()
+        headers = {"Authorization": f"Bearer {self._token}"}
+        result_holder = {}
+
+        async def do_request():
+            try:
+                r = await self._client.post(
+                    f"{OSU_BASE}{path}", params=params, json=body, headers=headers
+                )
+                r.raise_for_status()
+                result_holder["data"] = r.json()
+            except httpx.HTTPError:
+                for t in (0.5, 1.0, 2.0):
+                    await asyncio.sleep(t)
+                    try:
+                        r2 = await self._client.post(
+                            f"{OSU_BASE}{path}",
+                            params=params,
+                            json=body,
+                            headers=headers,
+                        )
                         r2.raise_for_status()
                         result_holder["data"] = r2.json()
                         return
@@ -104,7 +151,9 @@ class OsuApi:
         # username oder id
         return await self._get(f"/users/{identifier}/osu")
 
-    async def get_user_best(self, user_id: int | str, limit: int = 100, mode: str = "osu") -> list[dict]:
+    async def get_user_best(
+        self, user_id: int | str, limit: int = 100, mode: str = "osu"
+    ) -> list[dict]:
         """
         Holt bis zu 100 Best-Scores mit robuster Pagination via offset.
         """
@@ -123,9 +172,37 @@ class OsuApi:
             offset += got
         return scores
 
-    async def get_user_recent(self, user_id: int | str, limit: int = 50, mode: str = "osu") -> list[dict]:
+    async def get_user_recent(
+        self, user_id: int | str, limit: int = 50, mode: str = "osu"
+    ) -> list[dict]:
+
         params = {"limit": min(50, limit), "mode": mode}
         data = await self._get(f"/users/{user_id}/scores/recent", params=params)
+
+        if not data:
+            return []
+
+        # here, we are iterating over the recent plays and gathering their real
+        # sr, based on the mods that are applied
+        # This does not include lazer mods - no api exposes this yet
+
+        for play in data:
+            mods = play.get("mods", [])
+            beatmap_id = play["beatmap"]["id"]
+            body = {"mods": mods, "ruleset": mode}
+            sr_data = await self._post(f"/beatmaps/{beatmap_id}/attributes", body=body)
+
+            if (
+                sr_data
+                and "attributes" in sr_data
+                and "star_rating" in sr_data["attributes"]
+            ):
+                play["beatmap"]["difficulty_rating"] = sr_data["attributes"][
+                    "star_rating"
+                ]
+            else:
+                play["beatmap"]["difficulty_rating"] = None
+
         return data or []
 
     async def get_beatmap(self, beatmap_id: int | str) -> dict | None:
