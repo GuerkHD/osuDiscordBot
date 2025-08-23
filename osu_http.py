@@ -67,7 +67,10 @@ class OsuHttpClient:
     async def get(self, path: str, params: dict | None = None) -> Any:
         await self._ensure_worker()
         await self._ensure_token()
-        headers = {"Authorization": f"Bearer {self._token}"}
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "x-api-version": "20240705",
+        }
         result_holder = {}
 
         async def do_request():
@@ -106,7 +109,10 @@ class OsuHttpClient:
     ) -> Any:
         await self._ensure_worker()
         await self._ensure_token()
-        headers = {"Authorization": f"Bearer {self._token}"}
+        headers = {
+            "Authorization": f"Bearer {self._token}",
+            "x-api-version": "20240705",
+        }
         result_holder = {}
 
         async def do_request():

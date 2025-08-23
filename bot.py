@@ -25,6 +25,8 @@ import matplotlib
 
 matplotlib.use("Agg")
 
+# TODO: separate this file into two - only discord based functions should be in here
+
 
 load_dotenv()
 
@@ -106,7 +108,8 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
         return existing
 
     # All osu tops for Top_Star
-    best = await osu.get_user_best(user.osu_user_id, limit=100, mode="osu")
+    best = await osu.get_user_best(user.osu_user_id, limit=50, mode="osu")
+    pp_threshold = best["pp_threshold"]
     if not best:
         ts = TopStats(
             user_id=user.id,
@@ -120,14 +123,10 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
         return ts
 
     # filter NF
-    best = [s for s in best if not _mods_have_nf(s.get("mods"))]
+    best = [s for s in best["top10"] if not _mods_have_nf(s.get("mods"))]
 
     # sort by pp
     sorted_best = sorted(best, key=lambda s: float(s.get("pp") or 0.0), reverse=True)
-
-    # Top50 threshhold
-    top50_pp_threshold = float(sorted_best[49]["pp"]) if len(sorted_best) >= 50 else 0.0
-
     # Top10 for TS
     top10 = sorted_best[:10]
     sr_vals = []
@@ -146,7 +145,7 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
         top10_avg_star_raw=top10_avg_star_raw,
         top10_miss_sum=miss_sum,
         top_star_TS=TS,
-        top50_pp_threshold=top50_pp_threshold,
+        top50_pp_threshold=pp_threshold,
     )
     storage.upsert_topstats(ts)
     return ts
@@ -296,9 +295,23 @@ async def push(ctx: commands.Context, username: str | None = None):
     user = await resolve_user(ctx, username)
     if not user:
         return
+
+    wait_embed = discord.Embed(
+        title="Calculating Push Value...",
+        description="Fetching your recent plays and calculating star ratings. This may take a few seconds.",
+        color=discord.Color.orange(),
+    )
+
+    wait_msg = await ctx.reply(embed=wait_embed)
+
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=None)
-    await ctx.reply(f"Push Value for **{user.osu_username}**: **{total:.2f}**")
+    result_embed = discord.Embed(
+        title="Push Value",
+        description=f"Push Value for **{user.osu_username}**: **{total:.2f}**",
+        color=discord.Color.green(),
+    )
+    await wait_msg.edit(embed=result_embed)
 
 
 @bot.command(name="push_session")
@@ -307,11 +320,24 @@ async def push_session(ctx: commands.Context, username: str | None = None):
     user = await resolve_user(ctx, username)
     if not user:
         return
+
+    wait_embed = discord.Embed(
+        title="Calculating Push Value for last 12hrs...",
+        description="Fetching your recent plays and calculating star ratings. This may take a few seconds.",
+        color=discord.Color.orange(),
+    )
+
+    wait_msg = await ctx.reply(embed=wait_embed)
+
     await sync_recent_for_user(user)
     total = storage.cumulative_push(user.id, scope_hours=12)
-    await ctx.reply(
-        f"Push Value (last 12h) for **{user.osu_username}**: **{total:.2f}**"
+
+    result_embed = discord.Embed(
+        title="Push Value (last 12 hrs)",
+        description=f"Push Value for **{user.osu_username}**: **{total:.2f}**",
+        color=discord.Color.green(),
     )
+    await wait_msg.edit(embed=result_embed)
 
 
 @bot.command(name="leaderboard")
