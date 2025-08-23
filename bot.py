@@ -180,7 +180,7 @@ async def sync_recent_for_user(user: User):
         sr = float(beatmap.get("difficulty_rating") or 0.0)
         total_len = float(beatmap.get("total_length") or 0.0)
         acc = float(plays.get("accuracy") or 0.0) * 100.0
-        misses = int((plays.get("statistics") or {}).get("count_miss", 0))
+        misses = int((plays.get("statistics") or {}).get("miss", 0))
         pp = float(plays.get("pp") or 0.0)
 
         pv = compute_push_value(
