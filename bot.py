@@ -134,7 +134,7 @@ async def fetch_topstats_for_month(user: User, month_str: str) -> TopStats:
     for s in top10:
         sr = s.get("beatmap", {}).get("difficulty_rating")
         sr_vals.append(float(sr or 0.0))
-        miss_sum += int((s.get("statistics") or {}).get("count_miss", 0))
+        miss_sum += int((s.get("statistics") or {}).get("miss", 0))
 
     top10_avg_star_raw = float(np.mean(sr_vals)) if sr_vals else 0.0
     TS = compute_TS(top10_avg_star_raw, miss_sum)
