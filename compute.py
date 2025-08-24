@@ -2,6 +2,7 @@ from __future__ import annotations
 from math import sqrt
 from dataclasses import dataclass
 
+
 @dataclass
 class PushInputs:
     pp: float
@@ -10,10 +11,15 @@ class PushInputs:
     accuracy_percent: float
     map_length_seconds: float
     top50_pp_threshold: float
+    misses: float
+    toc: float
+    DT_rate: float
+
 
 def compute_TS(top10_avg_star_raw: float, top10_miss_sum: int) -> float:
     # TS = avg(SR_top10) - ( sqrt(sum(Misses_top10)) / 10 )
     return top10_avg_star_raw - (sqrt(top10_miss_sum) / 10.0)
+
 
 def compute_push_value(inputs: PushInputs) -> float:
     pp = inputs.pp
@@ -22,6 +28,11 @@ def compute_push_value(inputs: PushInputs) -> float:
     acc = inputs.accuracy_percent
     length = inputs.map_length_seconds
     Top50 = inputs.top50_pp_threshold
+    misses = inputs.misses
+    toc = inputs.toc
+    dt_rate = inputs.DT_rate
+
+    # can add new calcs here
 
     # Cases in order of specification
     if (pp > Top50) and (SR < TS):

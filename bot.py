@@ -54,6 +54,20 @@ osu = OsuApi(osu_http)
 # =========================
 
 
+def get_dt_rate(mods):
+    dt_rate = 1.0
+    for mod in mods:
+        if mod.get("acronym", "").upper() == "DT":
+            dt_rate = 1.5
+            settings = mod.get("settings", {})
+            if "speed_change" in settings:
+                dt_rate = float(settings["speed_change"])
+            elif "rate" in settings:
+                dt_rate = float(settings["rate"])
+            break
+    return dt_rate
+
+
 def _mods_have_nf(mods) -> bool:
     """
     mods kann Liste von Strings oder Liste von Objekten mit 'acronym' sein.
@@ -182,6 +196,11 @@ async def sync_recent_for_user(user: User):
         acc = float(plays.get("accuracy") or 0.0) * 100.0
         misses = int((plays.get("statistics") or {}).get("miss", 0))
         pp = float(plays.get("pp") or 0.0)
+        toc = float(
+            (beatmap.get("count_circles") + beatmap.get("count_sliders")) or 0.0
+        )
+
+        DT_rate = get_dt_rate(plays.get("mods", []))
 
         pv = compute_push_value(
             PushInputs(
@@ -191,6 +210,9 @@ async def sync_recent_for_user(user: User):
                 accuracy_percent=acc,
                 map_length_seconds=total_len,
                 top50_pp_threshold=ts.top50_pp_threshold,
+                misses=misses,
+                toc=toc,
+                DT_rate=DT_rate,
             )
         )
 
